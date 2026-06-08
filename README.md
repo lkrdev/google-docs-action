@@ -1,6 +1,34 @@
 # Google Docs Action (from Hub)
 
-A lightweight, fully minimized standalone Looker Action Hub hosting **only** the Google Docs Looker action (`google_docs`).
+![output all results](assets/all-results.png)
+
+A lightweight, fully minimized standalone Looker Action Hub hosting **only** the Google Docs Looker action (`google_docs`). The purpose of this is to get unlimited results into Google Docs which supports:
+
+- Headers & Footers
+- Page numbers and dynamic text
+- Section breaks
+- Table headers across all pages
+- PDF and physical printing
+
+Here is a link to an example [output document with unlimited results](https://docs.google.com/document/d/17Sk_EJdvKc1P8UI68z973-1zkn8Zm_W6sOfbGds4TCg/edit?usp=sharing) and a downloadable [PDF](https://docs.google.com/document/d/17Sk_EJdvKc1P8UI68z973-1zkn8Zm_W6sOfbGds4TCg/export?format=pdf).
+
+
+
+## What It Does
+
+When Looker sends a query payload to this action, it:
+1. **Validates & Authenticates**: Verifies the user's OAuth tokens against Google Drive/Docs APIs and enforces any domain allowlists (`domain_allowlist`).
+2. **Creates Document**: Initializes a new Google Doc (`application/vnd.google-apps.document`) in the requested Google Drive folder or Shared Drive.
+3. **Applies Landscape Formatting**: Configures page layout to Landscape (`11" x 8.5"`) with `0.5"` margins.
+4. **Streams & Batches CSV Data**: Streams the CSV export directly into a Google Doc table, sending Google Docs API batch updates (default 100 insertions/batch) to avoid request limits.
+5. **Styles the Table**:
+   - Bolds and pins the table header row across page breaks.
+   - Shades the header row with a light-gray background.
+   - Configures fixed column widths (first column at `0.5"`, remaining columns distributed evenly).
+   - Formats table text at `8pt` font size.
+6. **Handles Rate Limits**: Employs automatic exponential backoff retries (up to 5 times) on API rate limit (`429`) or server (`5xx`) responses.
+
+---
 
 ## Connecting to Looker
 
