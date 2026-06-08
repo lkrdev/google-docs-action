@@ -1,4 +1,4 @@
-# Google Docs Action (from Hub)
+# Google Docs Looker Action Hub
 
 ![output all results](assets/all-results.png)
 
@@ -16,29 +16,27 @@ Here is a link to an example [output document with unlimited results](https://do
 
 ## What It Does
 
-When Looker sends a query payload to this action, it:
-1. **Validates & Authenticates**: Verifies the user's OAuth tokens against Google Drive/Docs APIs and enforces any domain allowlists (`domain_allowlist`).
-2. **Creates Document**: Initializes a new Google Doc (`application/vnd.google-apps.document`) in the requested Google Drive folder or Shared Drive.
-3. **Applies Landscape Formatting**: Configures page layout to Landscape (`11" x 8.5"`) with `0.5"` margins.
-4. **Streams & Batches CSV Data**: Streams the CSV export directly into a Google Doc table, sending Google Docs API batch updates (default 100 insertions/batch) to avoid request limits.
-5. **Styles the Table**:
-   - Bolds and pins the table header row across page breaks.
-   - Shades the header row with a light-gray background.
-   - Configures fixed column widths (first column at `0.5"`, remaining columns distributed evenly).
-   - Formats table text at `8pt` font size.
-6. **Handles Rate Limits**: Employs automatic exponential backoff retries (up to 5 times) on API rate limit (`429`) or server (`5xx`) responses.
+When Looker sends a query payload via webhook, this service:
+1. Validates OAuth2 user credentials (`drive` and `documents` scopes) against Google APIs, enforcing optional domain allowlists (`domain_allowlist`).
+2. Creates a new blank Google Document (`application/vnd.google-apps.document`) within a target Drive folder or Shared Drive.
+3. Formats page boundaries to Landscape (`11" x 8.5"`) with `0.5"` margins.
+4. Streams Looker CSV payloads into a dynamic Google Doc table via batched `insertText` operations (default 100 insertions/batch) to optimize API payload constraints.
+5. Additional formatting:
+   - Applies pinned header rows (`pinTableHeaderRows: 1`) to repeat table headers across page breaks.
+   - Styles header rows with a `rgb(0.95, 0.95, 0.95)` light-gray background and bold text.
+   - Configures fixed column properties (first column at `0.5"`, remaining columns distributed evenly) and `8pt` typography.
+6. Implements exponential backoff retries (up to 5 attempts) on Google API rate limits (`429`) or server failures (`5xx`).
 
 ---
 
 ## Connecting to Looker
 
-Once your Cloud Run service is deployed, connect it to your Looker instance as a new standalone Action Hub:
-
-1. In your Looker instance, navigate to **Admin** > **Platform** > **Actions**.
-2. Scroll to the bottom and click **Add Action Hub**.
-3. Enter the URL of your deployed Cloud Run service (e.g., `https://google-docs-action-xxx-uc.a.run.app`).
-4. Enter the **Authorization Token** corresponding to your deployed service (configured via `ACTION_HUB_SECRET` or authorization headers).
-5. Click **Add Hub**. The **Google Docs** action will now appear in your list of integrations ready to be enabled.
+Register the deployed Action Hub within Looker:
+1. Navigate to **Admin** > **Platform** > **Actions**.
+2. Click **Add Action Hub**.
+3. Enter your deployed Cloud Run URL (e.g., `https://google-docs-action-xxx-uc.a.run.app`).
+4. Supply your **Authorization Token** (`ACTION_HUB_SECRET` or authorization headers).
+5. Click **Add Hub** and enable the **Google Docs** action.
 
 ---
 
@@ -57,45 +55,33 @@ gcloud run deploy google-docs-action \
 
 ---
 
-## Getting Started
+## Local Development
 
 ### Prerequisites
 - **Node.js**: `>= 20.16.0`
 - **Yarn**: `>= 1.19.1`
 
-### 1. Local Installation & Configuration
-Install project dependencies via Yarn:
+### Setup & Run
 ```bash
+# Install dependencies
 yarn install
-```
 
-Create a `.env` file from the example template to supply required OAuth and internal server variables:
-```bash
+# Configure environment variables
 cp .env.example .env
-```
-Ensure your `.env` contains your Google API credentials if executing live OAuth calls:
-```env
-GOOGLE_DOC_CLIENT_ID=your_google_client_id
-GOOGLE_DOC_CLIENT_SECRET=your_google_client_secret
-```
+# Set GOOGLE_DOC_CLIENT_ID & GOOGLE_DOC_CLIENT_SECRET in .env
 
-### 2. Starting the Local Server
-
-To start the production server locally:
-```bash
+# Start production server
 yarn start
-```
 
-To run the development server with hot-reloading:
-```bash
+# Run development server with hot-reloading
 yarn dev
 ```
 
 ---
 
-## Running Tests
+## Testing
 
-To run the complete test suite (Mocha unit & integration tests, TypeScript compilation, and TSLint):
+Run the test suite (Mocha unit/integration tests, TypeScript compilation, and linter):
 ```bash
 yarn test
 ```
