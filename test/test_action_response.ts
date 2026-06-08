@@ -1,7 +1,7 @@
 import * as chai from "chai"
 
-import type { Error } from "../lib/hub/action_response"
 import { ActionResponse} from "../src/hub"
+import type { Error } from "../src/hub/action_response"
 
 describe("ActionResponse validation", () => {
   it("json must have a top level looker: key", (done) => {
