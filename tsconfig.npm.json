@@ -8,8 +8,5 @@
     "src/crypto/**/**.ts",
     "src/actions/**/!(test)**.ts",
     "src/actions/index.ts"
-  ],
-  "files": [
-    "src/actions/sagemaker/strip_columns.js"
   ]
 }
