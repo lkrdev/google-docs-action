@@ -67,9 +67,10 @@ To allow Looker users to authenticate with Google Drive and Google Docs, you mus
    - Navigate to **APIs & Services** > **Credentials**.
    - Click **+ Create Credentials** at the top of the page, and select **OAuth client ID**.
    - Set **Application type** to **Web application**.
-   - In the **Authorized redirect URIs** section, click **+ Add URI** and enter the redirect URL for your deployment:
-     - For local development: `http://localhost:8080/actions/google_docs/oauth_redirect`
-     - For Cloud Run deployment: `https://<your-cloud-run-domain>/actions/google_docs/oauth_redirect`
+   - In the **Authorized redirect URIs** section, click **+ Add URI**:
+     - **For local development / initial setup**: Add `http://localhost:8080/actions/google_docs/oauth_redirect`
+     - **For Cloud Run deployment**: Once you deploy, you **must** return here to add the final redirect URI: `https://<your-cloud-run-domain>/actions/google_docs/oauth_redirect`
+   - Leave **Authorized JavaScript origins** empty/blank.
    - Click **Create**.
 5. Save the generated **Client ID** and **Client Secret**. These will be used for the `GOOGLE_DRIVE_CLIENT_ID` and `GOOGLE_DRIVE_CLIENT_SECRET` environment variables.
 

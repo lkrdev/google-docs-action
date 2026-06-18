@@ -13,18 +13,44 @@ fi
 echo "Using Google Cloud Project: $PROJECT_ID"
 
 # 2. Get/Prompt for configuration
-if [ -z "$GOOGLE_DRIVE_CLIENT_ID" ]; then
-  read -p "Enter GOOGLE_DRIVE_CLIENT_ID: " GOOGLE_DRIVE_CLIENT_ID
-fi
 # Check if Google Drive Client Secret is already in Secret Manager
 HAS_DRIVE_SECRET=false
 if gcloud secrets describe google-drive-client-secret &>/dev/null; then
   HAS_DRIVE_SECRET=true
 fi
 
+# Print OAuth client setup helper instructions if credentials are needed
+if [ -z "$GOOGLE_DRIVE_CLIENT_ID" ] || { [ "$HAS_DRIVE_SECRET" = false ] && [ -z "$GOOGLE_DRIVE_CLIENT_SECRET" ]; }; then
+  echo ""
+  echo "------------------------------------------------------------------------"
+  echo " Google OAuth 2.0 Credentials Setup"
+  echo "------------------------------------------------------------------------"
+  echo "This deployment requires a Google OAuth 2.0 Client ID and Secret."
+  echo "If you need to create them, open this URL in your browser:"
+  echo "https://console.cloud.google.com/auth/clients?project=$PROJECT_ID"
+  echo ""
+  echo "Setup Instructions:"
+  echo "1. Click '+ Create Credentials' and select 'OAuth client ID'."
+  echo "2. Set the Application type to 'Web application'."
+  echo "3. Add an Authorized redirect URI (you can use local for now):"
+  echo "   http://localhost:8080/actions/google_docs/oauth_redirect"
+  echo "4. Click 'Create' and copy the generated Client ID and Client Secret."
+  echo "------------------------------------------------------------------------"
+  echo ""
+fi
+
+if [ -z "$GOOGLE_DRIVE_CLIENT_ID" ]; then
+  read -p "Enter GOOGLE_DRIVE_CLIENT_ID: " GOOGLE_DRIVE_CLIENT_ID
+fi
+
 if [ "$HAS_DRIVE_SECRET" = false ] && [ -z "$GOOGLE_DRIVE_CLIENT_SECRET" ]; then
   read -sp "Enter GOOGLE_DRIVE_CLIENT_SECRET: " GOOGLE_DRIVE_CLIENT_SECRET
   echo ""
+fi
+
+# Prompt for Cloud Run Region
+if [ -z "$CLOUD_RUN_REGION" ]; then
+  read -p "Enter Cloud Run region [default: us-central1]: " CLOUD_RUN_REGION
 fi
 
 # 3. Prompt for Looker Registration (Optional)
@@ -51,7 +77,20 @@ gcloud services enable \
   docs.googleapis.com \
   cloudbuild.googleapis.com
 
-# 5. Create Secrets in Secret Manager if they do not exist
+# 5. Configure Service Account permissions
+echo "Configuring permissions for Cloud Run service account..."
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)")
+DEFAULT_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+echo "Granting Secret Manager Secret Accessor role to $DEFAULT_SA..."
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$DEFAULT_SA" \
+  --role="roles/secretmanager.secretAccessor" > /dev/null
+
+echo "Waiting 15 seconds for IAM permissions to propagate..."
+sleep 15
+
+# 6. Create Secrets in Secret Manager if they do not exist
 create_secret_if_missing() {
   local secret_name=$1
   local secret_val=$2
@@ -91,7 +130,7 @@ if [ "$HAS_DRIVE_SECRET" = false ]; then
   create_secret_if_missing "google-drive-client-secret" "$GOOGLE_DRIVE_CLIENT_SECRET"
 fi
 
-# 6. Deploy to Google Cloud Run
+# 7. Deploy to Google Cloud Run
 echo "Deploying service to Google Cloud Run..."
 REGION=${CLOUD_RUN_REGION:-us-central1}
 
@@ -103,7 +142,7 @@ gcloud run deploy google-docs-action \
   --set-env-vars="GOOGLE_DRIVE_CLIENT_ID=$GOOGLE_DRIVE_CLIENT_ID,ACTION_HUB_LABEL=Google Docs" \
   --set-secrets="CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest"
 
-# 7. Post-deployment configuration (Update URL)
+# 8. Post-deployment configuration (Update URL)
 SERVICE_URL=$(gcloud run services describe google-docs-action \
   --platform managed \
   --region "$REGION" \
@@ -125,7 +164,7 @@ const digest = crypto.createHmac('sha512', secret).update(nonce).digest('hex');
 console.log(nonce + '/' + digest);
 ")
 
-# 8. Register in Looker if selected
+# 9. Register in Looker if selected
 if [[ "$REGISTER_LOOKER" =~ ^[Yy]$ ]]; then
   echo "Registering with Looker Instance..."
   
@@ -156,4 +195,11 @@ echo "   $SERVICE_URL"
 echo ""
 echo "2. Authorization Token (API Key):"
 echo "   $API_KEY_TOKEN"
+echo ""
+echo "3. OAuth Authorized Redirect URI:"
+echo "   Make sure to add the following redirect URI to your Google OAuth Client ID:"
+echo "   $SERVICE_URL/actions/google_docs/oauth_redirect"
+echo ""
+echo "   You can manage your OAuth client IDs at:"
+echo "   https://console.cloud.google.com/auth/clients?project=$PROJECT_ID"
 echo "========================================================================="
