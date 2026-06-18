@@ -87,8 +87,8 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$DEFAULT_SA" \
   --role="roles/secretmanager.secretAccessor" > /dev/null
 
-echo "Waiting 15 seconds for IAM permissions to propagate..."
-sleep 15
+echo "Waiting 30 seconds for IAM permissions to propagate..."
+sleep 30
 
 # 6. Create Secrets in Secret Manager if they do not exist
 create_secret_if_missing() {
@@ -139,6 +139,8 @@ gcloud run deploy google-docs-action \
   --platform managed \
   --region "$REGION" \
   --allow-unauthenticated \
+  --cpu=4 \
+  --memory=8Gi \
   --set-env-vars="GOOGLE_DRIVE_CLIENT_ID=$GOOGLE_DRIVE_CLIENT_ID,ACTION_HUB_LABEL=Google Docs" \
   --set-secrets="CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest"
 
