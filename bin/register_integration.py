@@ -8,6 +8,11 @@ if "sdk" not in globals():
 url = os.environ.get('SERVICE_URL')
 token = os.environ.get('API_KEY_TOKEN')
 
+if not url:
+    raise Exception("SERVICE_URL environment variable not set.")
+if not token:
+    raise Exception("API_KEY_TOKEN environment variable not set.")
+
 print(f'Registering Integration Hub {url} in Looker...')
 try:
     new_hub = sdk.create_integration_hub(
