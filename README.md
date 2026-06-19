@@ -157,6 +157,46 @@ gcloud run deploy google-docs-action \
        - Reference secret `action-hub-secret` (version `latest`) and expose it as environment variable `ACTION_HUB_SECRET`.
    - Click **Create** to deploy.
 
+### Option D: Deploying via Terraform
+
+If you prefer Infrastructure-as-Code (IaC), you can provision all necessary Google Cloud resources (APIs, Service Account, Secrets, IAM policies, Artifact Registry, and Cloud Run) using Terraform.
+
+1. Navigate to the `terraform` directory:
+   ```bash
+   cd terraform
+   ```
+
+2. Copy the example variables file:
+   ```bash
+   cp terraform.tfvars.example terraform.tfvars
+   ```
+
+3. Open `terraform.tfvars` and fill in your configuration (your Google Cloud project ID, preferred region, and Google Drive OAuth credentials).
+
+4. Initialize and apply the Terraform configuration:
+   ```bash
+   terraform init
+   terraform apply
+   ```
+   *(This will initially deploy a lightweight placeholder container because your custom integration container has not yet been built and pushed to the repository.)*
+
+5. Build and push your integration container to the newly created Artifact Registry using Google Cloud Build:
+   ```bash
+   gcloud builds submit --tag $(terraform output -raw suggested_docker_image_tag) ..
+   ```
+   *(Note the `..` at the end to point Cloud Build to the parent directory containing the `Dockerfile` and source code.)*
+
+6. Update the Cloud Run service with the newly built image and the final service URL:
+   ```bash
+   terraform apply -var="image=$(terraform output -raw suggested_docker_image_tag)" -var="action_hub_base_url=$(terraform output -raw service_url)"
+   ```
+   *(Alternatively, uncomment and update these variables inside your `terraform.tfvars` file and run `terraform apply`.)*
+
+7. Add the OAuth redirect URI to your Google Cloud Console OAuth Client ID:
+   ```
+   <your_service_url>/actions/google_docs/oauth_redirect
+   ```
+
 ---
 
 ## Local Development

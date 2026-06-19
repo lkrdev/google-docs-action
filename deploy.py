@@ -114,8 +114,8 @@ def main(
         console.print("[bold red]Error: Project ID is required.[/bold red]")
         raise typer.Exit(1)
 
-    # Set project in gcloud config
-    run_cmd(["gcloud", "config", "set", "project", project_id], capture_output=True)
+    # Set project for all child processes using the official environment variable override
+    os.environ["CLOUDSDK_CORE_PROJECT"] = project_id
 
     # 2. Check if Google Drive Client Secret is already in Secret Manager
     has_drive_secret = False

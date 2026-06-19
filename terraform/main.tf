@@ -1,0 +1,204 @@
+terraform {
+  required_version = ">= 1.3.0"
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = ">= 5.0.0, < 6.0.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.0.0"
+    }
+  }
+}
+
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}
+
+# 1. Enable Google Cloud APIs
+resource "google_project_service" "services" {
+  for_each = toset([
+    "run.googleapis.com",
+    "secretmanager.googleapis.com",
+    "drive.googleapis.com",
+    "docs.googleapis.com",
+    "cloudbuild.googleapis.com",
+    "artifactregistry.googleapis.com",
+    "iam.googleapis.com"
+  ])
+  service            = each.key
+  disable_on_destroy = false
+}
+
+# 2. Create a dedicated Service Account for Cloud Run
+resource "google_service_account" "sa" {
+  account_id   = "google-docs-action-sa"
+  display_name = "Google Docs Action Service Account"
+  description  = "Dedicated service account for Google Docs Action"
+  depends_on   = [google_project_service.services]
+}
+
+# 3. Generate and store Cipher Master Key
+resource "random_id" "cipher_master" {
+  byte_length = 32
+}
+
+resource "google_secret_manager_secret" "cipher_master" {
+  secret_id = "cipher-master"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.services]
+}
+
+resource "google_secret_manager_secret_version" "cipher_master" {
+  secret      = google_secret_manager_secret.cipher_master.id
+  secret_data = random_id.cipher_master.hex
+}
+
+# 4. Generate and store Action Hub Secret Key
+resource "random_id" "action_hub_secret" {
+  byte_length = 32
+}
+
+resource "google_secret_manager_secret" "action_hub_secret" {
+  secret_id = "action-hub-secret"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.services]
+}
+
+resource "google_secret_manager_secret_version" "action_hub_secret" {
+  secret      = google_secret_manager_secret.action_hub_secret.id
+  secret_data = random_id.action_hub_secret.hex
+}
+
+# 5. Store Google Drive Client Secret
+resource "google_secret_manager_secret" "drive_client_secret" {
+  secret_id = "google-drive-client-secret"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.services]
+}
+
+resource "google_secret_manager_secret_version" "drive_client_secret" {
+  secret      = google_secret_manager_secret.drive_client_secret.id
+  secret_data = var.google_drive_client_secret
+}
+
+# 6. Grant Secret Manager Secret Accessor role to the Service Account
+resource "google_secret_manager_secret_iam_member" "cipher_master_accessor" {
+  secret_id = google_secret_manager_secret.cipher_master.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.sa.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "action_hub_secret_accessor" {
+  secret_id = google_secret_manager_secret.action_hub_secret.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.sa.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "drive_client_secret_accessor" {
+  secret_id = google_secret_manager_secret.drive_client_secret.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.sa.email}"
+}
+
+# 7. Create Artifact Registry Repository for the Docker image
+resource "google_artifact_registry_repository" "repo" {
+  location      = var.region
+  repository_id = "google-docs-action"
+  description   = "Docker repository for Google Docs Action"
+  format        = "DOCKER"
+  depends_on    = [google_project_service.services]
+}
+
+# 8. Deploy Cloud Run Service
+resource "google_cloud_run_v2_service" "service" {
+  name     = "google-docs-action"
+  location = var.region
+  ingress  = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    service_account = google_service_account.sa.email
+
+    containers {
+      image = var.image
+
+      resources {
+        limits = {
+          cpu    = "2.0"
+          memory = "4Gi"
+        }
+      }
+
+      env {
+        name  = "GOOGLE_DRIVE_CLIENT_ID"
+        value = var.google_drive_client_id
+      }
+
+      env {
+        name  = "ACTION_HUB_LABEL"
+        value = "Google Docs"
+      }
+
+      env {
+        name  = "ACTION_HUB_BASE_URL"
+        value = var.action_hub_base_url != "" ? var.action_hub_base_url : "http://placeholder"
+      }
+
+      env {
+        name = "CIPHER_MASTER"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.cipher_master.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "ACTION_HUB_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.action_hub_secret.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "GOOGLE_DRIVE_CLIENT_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.drive_client_secret.secret_id
+            version = "latest"
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_project_service.services,
+    google_secret_manager_secret_version.cipher_master,
+    google_secret_manager_secret_version.action_hub_secret,
+    google_secret_manager_secret_version.drive_client_secret,
+    google_secret_manager_secret_iam_member.cipher_master_accessor,
+    google_secret_manager_secret_iam_member.action_hub_secret_accessor,
+    google_secret_manager_secret_iam_member.drive_client_secret_accessor,
+  ]
+}
+
+# 9. Allow unauthenticated access to the Cloud Run service (public action hub)
+resource "google_cloud_run_v2_service_iam_member" "public_access" {
+  location = google_cloud_run_v2_service.service.location
+  name     = google_cloud_run_v2_service.service.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
