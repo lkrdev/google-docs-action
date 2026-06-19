@@ -1,0 +1,351 @@
+#!/usr/bin/env uv run
+# /// script
+# dependencies = [
+#     "typer>=0.9.0",
+#     "rich>=13.0.0",
+#     "questionary>=2.0.0",
+# ]
+# ///
+
+import os
+import sys
+import secrets
+import hmac
+import hashlib
+import time
+import subprocess
+from typing import Optional
+import typer
+import questionary
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+console = Console()
+
+def run_cmd(
+    cmd: list[str], 
+    check: bool = True, 
+    capture_output: bool = False, 
+    env: Optional[dict] = None
+) -> subprocess.CompletedProcess:
+    """Helper to run a shell command with consistent logging and error handling."""
+    try:
+        res = subprocess.run(
+            cmd,
+            check=check,
+            text=True,
+            capture_output=capture_output,
+            env=env
+        )
+        return res
+    except subprocess.CalledProcessError as e:
+        console.print(f"\n[bold red]Error running command:[/bold red] {' '.join(cmd)}")
+        if e.stderr:
+            console.print(f"[red]{e.stderr.strip()}[/red]")
+        sys.exit(1)
+
+def get_secret_value(secret_name: str) -> str:
+    """Retrieve the latest value of a secret from Secret Manager."""
+    res = run_cmd(
+        ["gcloud", "secrets", "versions", "access", "latest", f"--secret={secret_name}"], 
+        capture_output=True
+    )
+    return res.stdout.strip()
+
+def create_secret_if_missing(secret_name: str, secret_val: str):
+    """Create a secret in Secret Manager if it doesn't exist, and add the value as the latest version."""
+    check_res = subprocess.run(
+        ["gcloud", "secrets", "describe", secret_name],
+        capture_output=True,
+        text=True
+    )
+    if check_res.returncode != 0:
+        console.print(f"Creating secret [bold cyan]{secret_name}[/bold cyan]...")
+        run_cmd(["gcloud", "secrets", "create", secret_name, "--replication-policy=automatic"])
+        
+        # Add version securely via stdin to avoid exposing in process lists
+        proc = subprocess.Popen(
+            ["gcloud", "secrets", "versions", "add", secret_name, "--data-file=-"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        stdout, stderr = proc.communicate(input=secret_val)
+        if proc.returncode != 0:
+            console.print(f"[bold red]Failed to add version to secret {secret_name}:[/bold red] {stderr}")
+            sys.exit(1)
+    else:
+        console.print(f"Secret [bold green]{secret_name}[/bold green] already exists.")
+
+def main(
+    project_id: Optional[str] = typer.Option(None, "--project-id", "-p", help="Google Cloud Project ID"),
+    drive_client_id: Optional[str] = typer.Option(None, "--drive-client-id", help="Google Drive Client ID"),
+    drive_client_secret: Optional[str] = typer.Option(None, "--drive-client-secret", help="Google Drive Client Secret"),
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="Cloud Run region (e.g. us-central1)"),
+    service_account_email: Optional[str] = typer.Option(None, "--service-account-email", help="Specific service account email to run the service"),
+    register_looker: Optional[bool] = typer.Option(None, "--register-looker/--no-register-looker", help="Automatically register the action in Looker"),
+    looker_url: Optional[str] = typer.Option(None, "--looker-url", help="Looker Base URL"),
+    looker_client_id: Optional[str] = typer.Option(None, "--looker-client-id", help="Looker Client ID"),
+    looker_client_secret: Optional[str] = typer.Option(None, "--looker-client-secret", help="Looker Client Secret"),
+):
+    console.print(Panel.fit(
+        "[bold green]🚀 Google Docs Action Hub Deployment Wizard[/bold green]",
+        border_style="green",
+        padding=(0, 5)
+    ))
+
+    # 1. Verify gcloud authentication & retrieve/verify Project ID
+    try:
+        current_project = run_cmd(["gcloud", "config", "get-value", "project"], capture_output=True).stdout.strip()
+    except Exception:
+        console.print("[bold red]Error: gcloud is not authenticated or not installed.[/bold red]")
+        console.print("Please run [bold yellow]gcloud auth login[/bold yellow] first.")
+        raise typer.Exit(1)
+
+    if not project_id:
+        if current_project:
+            project_id = questionary.text("Enter Google Cloud Project ID:", default=current_project).ask()
+        else:
+            project_id = questionary.text("Enter Google Cloud Project ID:").ask()
+            
+    if not project_id:
+        console.print("[bold red]Error: Project ID is required.[/bold red]")
+        raise typer.Exit(1)
+
+    # Set project in gcloud config
+    run_cmd(["gcloud", "config", "set", "project", project_id], capture_output=True)
+
+    # 2. Check if Google Drive Client Secret is already in Secret Manager
+    has_drive_secret = False
+    check_secret = subprocess.run(
+        ["gcloud", "secrets", "describe", "google-drive-client-secret"],
+        capture_output=True,
+        text=True
+    )
+    if check_secret.returncode == 0:
+        has_drive_secret = True
+        console.print("[bold green]✔[/bold green] Found existing [bold cyan]google-drive-client-secret[/bold cyan] in Secret Manager.")
+
+    # 3. Prompt for missing credentials/parameters
+    if not drive_client_id:
+        drive_client_id = questionary.text("Enter GOOGLE_DRIVE_CLIENT_ID:").ask()
+    if not drive_client_id:
+        console.print("[bold red]Error: GOOGLE_DRIVE_CLIENT_ID is required.[/bold red]")
+        raise typer.Exit(1)
+
+    if not has_drive_secret and not drive_client_secret:
+        drive_client_secret = questionary.password("Enter GOOGLE_DRIVE_CLIENT_SECRET:").ask()
+    if not has_drive_secret and not drive_client_secret:
+        console.print("[bold red]Error: GOOGLE_DRIVE_CLIENT_SECRET is required to initialize the secret.[/bold red]")
+        raise typer.Exit(1)
+
+    # Prompt for Cloud Run Region
+    if not region:
+        region = questionary.select(
+            "Select Cloud Run region:",
+            choices=[
+                "us-central1",
+                "us-east1",
+                "us-west1",
+                "europe-west1",
+                "asia-east1",
+                "Other (type manually)"
+            ],
+            default="us-central1"
+        ).ask()
+        if region == "Other (type manually)":
+            region = questionary.text("Enter Cloud Run region:").ask()
+            
+    if not region:
+        region = "us-central1"
+
+    # Prompt for Looker Registration (if not explicitly passed as flag)
+    if register_looker is None:
+        register_looker = questionary.confirm("Do you want to automatically register this action in Looker?", default=False).ask()
+
+    if register_looker:
+        if not looker_url:
+            looker_url = questionary.text("Enter Looker Base URL (e.g. https://yourcompany.looker.com):").ask()
+        if not looker_client_id:
+            looker_client_id = questionary.text("Enter Looker Client ID:").ask()
+        if not looker_client_secret:
+            looker_client_secret = questionary.password("Enter Looker Client Secret:").ask()
+
+    # 4. Enable required APIs
+    with console.status("[bold green]Enabling Google Cloud APIs (this may take a minute)..."):
+        run_cmd([
+            "gcloud", "services", "enable",
+            "run.googleapis.com",
+            "secretmanager.googleapis.com",
+            "drive.googleapis.com",
+            "docs.googleapis.com",
+            "cloudbuild.googleapis.com"
+        ], capture_output=True)
+    console.print("[bold green]✔[/bold green] Google Cloud APIs enabled successfully.")
+
+    # 5. Configure Service Account
+    create_new_sa = False
+    if not service_account_email:
+        create_sa_choice = questionary.confirm(
+            "Do you want to create a new dedicated service account for this deployment? (recommended)", 
+            default=True
+        ).ask()
+        if create_sa_choice:
+            service_account_email = f"google-docs-action-sa@{project_id}.iam.gserviceaccount.com"
+            create_new_sa = True
+
+    # Retrieve Project Number for default SA fallback
+    project_number_res = run_cmd(
+        ["gcloud", "projects", "describe", project_id, "--format=value(projectNumber)"], 
+        capture_output=True
+    )
+    project_number = project_number_res.stdout.strip()
+    default_sa = f"{project_number}-compute@developer.gserviceaccount.com"
+
+    if create_new_sa:
+        sa_name = "google-docs-action-sa"
+        console.print(f"Checking service account [bold cyan]{service_account_email}[/bold cyan]...")
+        check_sa = subprocess.run(
+            ["gcloud", "iam", "service-accounts", "describe", service_account_email],
+            capture_output=True,
+            text=True
+        )
+        if check_sa.returncode != 0:
+            console.print(f"Creating dedicated service account [bold cyan]{sa_name}[/bold cyan]...")
+            run_cmd([
+                "gcloud", "iam", "service-accounts", "create", sa_name,
+                "--description=Dedicated service account for Google Docs Action",
+                "--display-name=Google Docs Action Service Account"
+            ], capture_output=True)
+        else:
+            console.print(f"Service account [bold green]{service_account_email}[/bold green] already exists.")
+
+    run_sa = service_account_email if service_account_email else default_sa
+
+    console.print(f"Granting Secret Manager Secret Accessor role to [bold cyan]{run_sa}[/bold cyan]...")
+    run_cmd([
+        "gcloud", "projects", "add-iam-policy-binding", project_id,
+        f"--member=serviceAccount:{run_sa}",
+        "--role=roles/secretmanager.secretAccessor"
+    ], capture_output=True)
+
+    # Spinner for IAM propagation
+    with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
+        time.sleep(30)
+    console.print("[bold green]✔[/bold green] IAM permissions propagated.")
+
+    # 6. Create Secrets in Secret Manager if they do not exist
+    cipher_master_val = secrets.token_hex(32)
+    action_hub_secret_val = secrets.token_hex(32)
+
+    # Handle cipher-master
+    check_cipher = subprocess.run(["gcloud", "secrets", "describe", "cipher-master"], capture_output=True)
+    if check_cipher.returncode == 0:
+        console.print("Retrieving existing [bold cyan]cipher-master[/bold cyan] secret...")
+        cipher_master_val = get_secret_value("cipher-master")
+    else:
+        create_secret_if_missing("cipher-master", cipher_master_val)
+
+    # Handle action-hub-secret
+    check_hub_secret = subprocess.run(["gcloud", "secrets", "describe", "action-hub-secret"], capture_output=True)
+    if check_hub_secret.returncode == 0:
+        console.print("Retrieving existing [bold cyan]action-hub-secret[/bold cyan] secret...")
+        action_hub_secret_val = get_secret_value("action-hub-secret")
+    else:
+        create_secret_if_missing("action-hub-secret", action_hub_secret_val)
+
+    # Handle google-drive-client-secret
+    if not has_drive_secret:
+        create_secret_if_missing("google-drive-client-secret", drive_client_secret)
+
+    # 7. Deploy to Google Cloud Run
+    console.print("\n[bold cyan]Deploying service to Google Cloud Run...[/bold cyan]")
+    
+    deploy_cmd = [
+        "gcloud", "run", "deploy", "google-docs-action",
+        "--source", ".",
+        "--platform", "managed",
+        f"--region={region}",
+        "--allow-unauthenticated",
+        "--cpu=2",
+        "--memory=4Gi",
+        f"--service-account={run_sa}",
+        f"--set-env-vars=GOOGLE_DRIVE_CLIENT_ID={drive_client_id},ACTION_HUB_LABEL=Google Docs,ACTION_HUB_BASE_URL=http://placeholder",
+        "--set-secrets=CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest"
+    ]
+    
+    # Run the deployment and stream output to console
+    run_cmd(deploy_cmd)
+
+    # 8. Post-deployment configuration (Update URL)
+    console.print("\n[bold cyan]Retrieving Deployed Service URL...[/bold cyan]")
+    url_res = run_cmd([
+        "gcloud", "run", "services", "describe", "google-docs-action",
+        "--platform", "managed",
+        f"--region={region}",
+        "--format=value(status.url)"
+    ], capture_output=True)
+    service_url = url_res.stdout.strip()
+
+    console.print(f"Deployed Service URL: [bold green]{service_url}[/bold green]")
+    console.print(f"Updating ACTION_HUB_BASE_URL env var on Cloud Run to [bold green]{service_url}[/bold green]...")
+    run_cmd([
+        "gcloud", "run", "services", "update", "google-docs-action",
+        "--platform", "managed",
+        f"--region={region}",
+        f"--update-env-vars=ACTION_HUB_BASE_URL={service_url}"
+    ], capture_output=True)
+
+    # Natively generate the API Key Token (HMAC SHA512)
+    nonce = secrets.token_bytes(32).hex()
+    digest = hmac.new(
+        action_hub_secret_val.encode("utf-8"),
+        nonce.encode("utf-8"),
+        hashlib.sha512
+    ).hexdigest()
+    api_key_token = f"{nonce}/{digest}"
+
+    # 9. Register in Looker if selected
+    if register_looker:
+        console.print("\n[bold cyan]Registering action with Looker Instance...[/bold cyan]")
+        
+        env = os.environ.copy()
+        env["SERVICE_URL"] = service_url
+        env["API_KEY_TOKEN"] = api_key_token
+        env["LOOKERSDK_CLIENT_ID"] = looker_client_id
+        env["LOOKERSDK_CLIENT_SECRET"] = looker_client_secret
+        env["LOOKERSDK_BASE_URL"] = looker_url
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        register_script = os.path.join(script_dir, "bin", "register_integration.py")
+
+        # Run registration script via uvx sandbox
+        run_cmd([
+            "uvx", "--from", "lkr-dev-cli[codemode]", "lkr", "code-mode", "sandbox",
+            "--file", register_script
+        ], env=env)
+
+    # 10. Display Registration Details
+    table = Table(title="Looker Action Hub Registration Details", show_header=True, header_style="bold magenta")
+    table.add_column("Parameter", style="cyan", width=30)
+    table.add_column("Value", style="green")
+    
+    table.add_row("Action Hub URL", service_url)
+    table.add_row("Authorization Token (API Key)", api_key_token)
+    table.add_row("OAuth Redirect URI", f"{service_url}/actions/google_docs/oauth_redirect")
+    
+    console.print("\n")
+    console.print(Panel.fit(
+        table,
+        title="[bold green]🎉 Deployment & Configuration Successful![/bold green]",
+        border_style="green",
+        padding=(1, 2)
+    ))
+    
+    console.print("\n[bold yellow]Important: [/bold yellow]Make sure to add the OAuth Redirect URI to your Google OAuth Client ID credentials at:")
+    console.print(f"https://console.cloud.google.com/auth/clients?project={project_id}\n")
+
+if __name__ == "__main__":
+    typer.run(main)

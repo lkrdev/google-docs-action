@@ -89,6 +89,8 @@ After the Cloud Shell environment finishes loading, execute the deployment scrip
 ./deploy.sh
 ```
 
+*(Note: The script will automatically install `uv` if it is not already present on your system, and then launch the interactive Python wizard.)*
+
 This script will automatically:
 * Enable the required Google Cloud APIs (Cloud Run, Secret Manager, Google Drive, and Google Docs).
 * Prompt you for your Google Drive Client ID and Client Secret.
