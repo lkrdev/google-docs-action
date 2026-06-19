@@ -2,6 +2,10 @@
 set -e
 
 echo "=== Google Docs Looker Action Deployment ==="
+echo "WARNING: This script will deploy the Cloud Run service with '--allow-unauthenticated'."
+echo "This is required so that external Looker instances can access the action webhook endpoint."
+echo "However, the action api routes themselves are secured via your ACTION_HUB_SECRET token."
+echo ""
 
 # 1. Check Google Cloud Project
 PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
@@ -139,9 +143,9 @@ gcloud run deploy google-docs-action \
   --platform managed \
   --region "$REGION" \
   --allow-unauthenticated \
-  --cpu=4 \
-  --memory=8Gi \
-  --set-env-vars="GOOGLE_DRIVE_CLIENT_ID=$GOOGLE_DRIVE_CLIENT_ID,ACTION_HUB_LABEL=Google Docs" \
+  --cpu=2 \
+  --memory=4Gi \
+  --set-env-vars="GOOGLE_DRIVE_CLIENT_ID=$GOOGLE_DRIVE_CLIENT_ID,ACTION_HUB_LABEL=Google Docs,ACTION_HUB_BASE_URL=http://placeholder" \
   --set-secrets="CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest"
 
 # 8. Post-deployment configuration (Update URL)
