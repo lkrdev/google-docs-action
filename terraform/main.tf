@@ -3,7 +3,7 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = ">= 5.0.0, < 6.0.0"
+      version = ">= 5.0.0, < 7.0.0"
     }
     random = {
       source  = "hashicorp/random"
@@ -120,9 +120,10 @@ resource "google_artifact_registry_repository" "repo" {
 
 # 8. Deploy Cloud Run Service
 resource "google_cloud_run_v2_service" "service" {
-  name     = "google-docs-action"
-  location = var.region
-  ingress  = "INGRESS_TRAFFIC_ALL"
+  name                 = "google-docs-action"
+  location             = var.region
+  ingress              = "INGRESS_TRAFFIC_ALL"
+  invoker_iam_disabled = true
 
   template {
     service_account = google_service_account.sa.email
@@ -195,13 +196,8 @@ resource "google_cloud_run_v2_service" "service" {
   ]
 }
 
-# 9. Allow unauthenticated access to the Cloud Run service (public action hub)
-resource "google_cloud_run_v2_service_iam_member" "public_access" {
-  location = google_cloud_run_v2_service.service.location
-  name     = google_cloud_run_v2_service.service.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
-}
+# 9. Public access is handled via invoker_iam_disabled = true on the service resource itself,
+# which is compatible with Domain Restricted Sharing organization policies.
 
 # 10. Grant Cloud Build Editor role to the Service Account
 resource "google_project_iam_member" "sa_cloudbuild_editor" {

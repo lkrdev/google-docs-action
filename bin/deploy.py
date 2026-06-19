@@ -337,7 +337,7 @@ def main(
         "gcloud", "run", "deploy", "google-docs-action",
         "--platform", "managed",
         f"--region={region}",
-        "--allow-unauthenticated",
+        "--no-invoker-iam-check",
         "--cpu=2",
         "--memory=4Gi",
         f"--service-account={run_sa}",

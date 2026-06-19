@@ -124,7 +124,7 @@ gcloud run deploy google-docs-action \
   --image=us-central1-docker.pkg.dev/lkr-dev-production/looker-action/google-docs-action:latest \
   --platform=managed \
   --region=us-central1 \
-  --allow-unauthenticated \
+  --no-invoker-iam-check \
   --set-env-vars="GOOGLE_DRIVE_CLIENT_ID=your_id,GOOGLE_DRIVE_CLIENT_SECRET=your_secret,ACTION_HUB_SECRET=your_action_hub_secret,ACTION_HUB_BASE_URL=https://your-cloud-run-url,ACTION_HUB_LABEL=Google Docs,CIPHER_MASTER=your_cipher_master"
 ```
 
