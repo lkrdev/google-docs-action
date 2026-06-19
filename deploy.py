@@ -230,27 +230,65 @@ def main(
 
     max_retries = 12
     retry_delay = 5
-    for attempt in range(1, max_retries + 1):
-        res = run_cmd([
-            "gcloud", "projects", "add-iam-policy-binding", project_id,
-            f"--member=serviceAccount:{run_sa}",
-            "--role=roles/secretmanager.secretAccessor"
-        ], check=False, capture_output=True)
-        if res.returncode == 0:
-            break
-        
-        stderr_msg = res.stderr or ""
-        if "does not exist" in stderr_msg or "INVALID_ARGUMENT" in stderr_msg:
-            if attempt == max_retries:
-                console.print(f"\n[bold red]Error running command after {max_retries} attempts:[/bold red]")
+    
+    # Roles to grant to the service account (only Secret Accessor is needed at runtime)
+    roles_to_grant = [
+        "roles/secretmanager.secretAccessor"
+    ]
+
+    console.print(f"Granting required roles to [bold cyan]{run_sa}[/bold cyan] on the project...")
+    for role in roles_to_grant:
+        for attempt in range(1, max_retries + 1):
+            res = run_cmd([
+                "gcloud", "projects", "add-iam-policy-binding", project_id,
+                f"--member=serviceAccount:{run_sa}",
+                f"--role={role}"
+            ], check=False, capture_output=True)
+            if res.returncode == 0:
+                break
+            
+            stderr_msg = res.stderr or ""
+            if "does not exist" in stderr_msg or "INVALID_ARGUMENT" in stderr_msg:
+                if attempt == max_retries:
+                    console.print(f"\n[bold red]Error granting role {role} after {max_retries} attempts:[/bold red]")
+                    console.print(f"[red]{stderr_msg.strip()}[/red]")
+                    sys.exit(1)
+                console.print(f"  [yellow]Service account not yet available, retrying role binding for {role} in {retry_delay}s... (attempt {attempt}/{max_retries})[/yellow]")
+                time.sleep(retry_delay)
+            else:
+                console.print("\n[bold red]Error running command:[/bold red] gcloud projects add-iam-policy-binding")
                 console.print(f"[red]{stderr_msg.strip()}[/red]")
                 sys.exit(1)
-            console.print(f"  [yellow]Service account not yet available, retrying role binding in {retry_delay}s... (attempt {attempt}/{max_retries})[/yellow]")
-            time.sleep(retry_delay)
-        else:
-            console.print("\n[bold red]Error running command:[/bold red] gcloud projects add-iam-policy-binding")
-            console.print(f"[red]{stderr_msg.strip()}[/red]")
-            sys.exit(1)
+
+    # If using a custom service account, grant Service Account User to the build service accounts
+    if run_sa != default_sa:
+        console.print(f"Granting [bold magenta]Service Account User[/bold magenta] role on [bold cyan]{run_sa}[/bold cyan] to build service accounts...")
+        build_sas = [
+            f"{project_number}-compute@developer.gserviceaccount.com",
+            f"{project_number}@cloudbuild.gserviceaccount.com"
+        ]
+        for b_sa in build_sas:
+            for attempt in range(1, max_retries + 1):
+                res = run_cmd([
+                    "gcloud", "iam", "service-accounts", "add-iam-policy-binding",
+                    run_sa,
+                    f"--member=serviceAccount:{b_sa}",
+                    "--role=roles/iam.serviceAccountUser"
+                ], check=False, capture_output=True)
+                if res.returncode == 0:
+                    break
+                
+                stderr_msg = res.stderr or ""
+                if "does not exist" in stderr_msg or "INVALID_ARGUMENT" in stderr_msg:
+                    if attempt == max_retries:
+                        console.print(f"\n[bold red]Error granting Service Account User to {b_sa} after {max_retries} attempts:[/bold red]")
+                        console.print(f"[red]{stderr_msg.strip()}[/red]")
+                        sys.exit(1)
+                    time.sleep(retry_delay)
+                else:
+                    console.print("\n[bold red]Error running command:[/bold red] gcloud iam service-accounts add-iam-policy-binding")
+                    console.print(f"[red]{stderr_msg.strip()}[/red]")
+                    sys.exit(1)
 
     # Spinner for IAM propagation
     with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
