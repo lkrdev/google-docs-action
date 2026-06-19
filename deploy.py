@@ -36,7 +36,8 @@ def run_cmd(
             check=check,
             text=True,
             capture_output=capture_output,
-            env=env
+            env=env,
+            stdin=subprocess.DEVNULL
         )
         return res
     except subprocess.CalledProcessError as e:
@@ -58,7 +59,8 @@ def create_secret_if_missing(secret_name: str, secret_val: str):
     check_res = subprocess.run(
         ["gcloud", "secrets", "describe", secret_name],
         capture_output=True,
-        text=True
+        text=True,
+        stdin=subprocess.DEVNULL
     )
     if check_res.returncode != 0:
         console.print(f"Creating secret [bold cyan]{secret_name}[/bold cyan]...")
@@ -122,7 +124,8 @@ def main(
     check_secret = subprocess.run(
         ["gcloud", "secrets", "describe", "google-drive-client-secret"],
         capture_output=True,
-        text=True
+        text=True,
+        stdin=subprocess.DEVNULL
     )
     if check_secret.returncode == 0:
         has_drive_secret = True
@@ -210,7 +213,8 @@ def main(
         check_sa = subprocess.run(
             ["gcloud", "iam", "service-accounts", "describe", service_account_email],
             capture_output=True,
-            text=True
+            text=True,
+            stdin=subprocess.DEVNULL
         )
         if check_sa.returncode != 0:
             console.print(f"Creating dedicated service account [bold cyan]{sa_name}[/bold cyan]...")
@@ -224,12 +228,29 @@ def main(
 
     run_sa = service_account_email if service_account_email else default_sa
 
-    console.print(f"Granting Secret Manager Secret Accessor role to [bold cyan]{run_sa}[/bold cyan]...")
-    run_cmd([
-        "gcloud", "projects", "add-iam-policy-binding", project_id,
-        f"--member=serviceAccount:{run_sa}",
-        "--role=roles/secretmanager.secretAccessor"
-    ], capture_output=True)
+    max_retries = 12
+    retry_delay = 5
+    for attempt in range(1, max_retries + 1):
+        res = run_cmd([
+            "gcloud", "projects", "add-iam-policy-binding", project_id,
+            f"--member=serviceAccount:{run_sa}",
+            "--role=roles/secretmanager.secretAccessor"
+        ], check=False, capture_output=True)
+        if res.returncode == 0:
+            break
+        
+        stderr_msg = res.stderr or ""
+        if "does not exist" in stderr_msg or "INVALID_ARGUMENT" in stderr_msg:
+            if attempt == max_retries:
+                console.print(f"\n[bold red]Error running command after {max_retries} attempts:[/bold red]")
+                console.print(f"[red]{stderr_msg.strip()}[/red]")
+                sys.exit(1)
+            console.print(f"  [yellow]Service account not yet available, retrying role binding in {retry_delay}s... (attempt {attempt}/{max_retries})[/yellow]")
+            time.sleep(retry_delay)
+        else:
+            console.print("\n[bold red]Error running command:[/bold red] gcloud projects add-iam-policy-binding")
+            console.print(f"[red]{stderr_msg.strip()}[/red]")
+            sys.exit(1)
 
     # Spinner for IAM propagation
     with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
@@ -241,7 +262,11 @@ def main(
     action_hub_secret_val = secrets.token_hex(32)
 
     # Handle cipher-master
-    check_cipher = subprocess.run(["gcloud", "secrets", "describe", "cipher-master"], capture_output=True)
+    check_cipher = subprocess.run(
+        ["gcloud", "secrets", "describe", "cipher-master"],
+        capture_output=True,
+        stdin=subprocess.DEVNULL
+    )
     if check_cipher.returncode == 0:
         console.print("Retrieving existing [bold cyan]cipher-master[/bold cyan] secret...")
         cipher_master_val = get_secret_value("cipher-master")
@@ -249,7 +274,11 @@ def main(
         create_secret_if_missing("cipher-master", cipher_master_val)
 
     # Handle action-hub-secret
-    check_hub_secret = subprocess.run(["gcloud", "secrets", "describe", "action-hub-secret"], capture_output=True)
+    check_hub_secret = subprocess.run(
+        ["gcloud", "secrets", "describe", "action-hub-secret"],
+        capture_output=True,
+        stdin=subprocess.DEVNULL
+    )
     if check_hub_secret.returncode == 0:
         console.print("Retrieving existing [bold cyan]action-hub-secret[/bold cyan] secret...")
         action_hub_secret_val = get_secret_value("action-hub-secret")
