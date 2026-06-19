@@ -195,11 +195,8 @@ def main(
     if image_source not in ["public", "build"]:
         image_choice = questionary.select(
             "How would you like to deploy the action?",
-            choices=[
-                "Build from source (recommended)",
-                "Use pre-built public image"
-            ],
-            default="Build from source (recommended)"
+            choices=["Build from source (recommended)", "Use pre-built public image"],
+            default="Use pre-built public image",
         ).ask()
         image_source = "public" if "public" in image_choice.lower() else "build"
     else:

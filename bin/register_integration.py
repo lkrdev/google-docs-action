@@ -45,7 +45,7 @@ except Exception as e:
 
 print('Enabling google_docs integration...')
 integrations = sdk.all_integrations()
-integration = next((i for i in integrations if i.integration_hub_id == new_hub.id and i.name == 'google_docs'), None)
+integration = next((i for i in integrations if i.integration_hub_id == new_hub.id and i.id == 'google_docs'), None)
 if integration:
     sdk.update_integration(
         integration_id=integration.id,
