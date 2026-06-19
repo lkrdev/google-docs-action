@@ -202,3 +202,10 @@ resource "google_cloud_run_v2_service_iam_member" "public_access" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+# 10. Grant Cloud Build Editor role to the Service Account
+resource "google_project_iam_member" "sa_cloudbuild_editor" {
+  project = var.project_id
+  role    = "roles/cloudbuild.builds.editor"
+  member  = "serviceAccount:${google_service_account.sa.email}"
+}

@@ -54,32 +54,59 @@ def get_secret_value(secret_name: str) -> str:
     )
     return res.stdout.strip()
 
-def create_secret_if_missing(secret_name: str, secret_val: str):
-    """Create a secret in Secret Manager if it doesn't exist, and add the value as the latest version."""
-    check_res = subprocess.run(
+def secret_exists(secret_name: str) -> bool:
+    """Check if a secret exists in Secret Manager."""
+    res = subprocess.run(
         ["gcloud", "secrets", "describe", secret_name],
         capture_output=True,
-        text=True,
         stdin=subprocess.DEVNULL
     )
-    if check_res.returncode != 0:
-        console.print(f"Creating secret [bold cyan]{secret_name}[/bold cyan]...")
-        run_cmd(["gcloud", "secrets", "create", secret_name, "--replication-policy=automatic"])
+    return res.returncode == 0
+
+def run_cmd_with_retry(
+    cmd: list[str], 
+    error_substrings: list[str], 
+    max_retries: int = 12, 
+    delay: int = 5
+) -> subprocess.CompletedProcess:
+    """Run a command, retrying if the stderr contains any of the error_substrings."""
+    for attempt in range(1, max_retries + 1):
+        res = run_cmd(cmd, check=False, capture_output=True)
+        if res.returncode == 0:
+            return res
         
-        # Add version securely via stdin to avoid exposing in process lists
-        proc = subprocess.Popen(
-            ["gcloud", "secrets", "versions", "add", secret_name, "--data-file=-"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        stdout, stderr = proc.communicate(input=secret_val)
-        if proc.returncode != 0:
-            console.print(f"[bold red]Failed to add version to secret {secret_name}:[/bold red] {stderr}")
+        stderr_msg = res.stderr or ""
+        should_retry = any(sub in stderr_msg for sub in error_substrings)
+        
+        if should_retry and attempt < max_retries:
+            console.print(f"  [yellow]Command failed, retrying in {delay}s... (attempt {attempt}/{max_retries})[/yellow]")
+            time.sleep(delay)
+        else:
+            console.print(f"\n[bold red]Error running command after {attempt} attempts:[/bold red] {' '.join(cmd)}")
+            console.print(f"[red]{stderr_msg.strip()}[/red]")
             sys.exit(1)
-    else:
+
+def create_secret_if_missing(secret_name: str, secret_val: str):
+    """Create a secret in Secret Manager if it doesn't exist, and add the value as the latest version."""
+    if secret_exists(secret_name):
         console.print(f"Secret [bold green]{secret_name}[/bold green] already exists.")
+        return
+
+    console.print(f"Creating secret [bold cyan]{secret_name}[/bold cyan]...")
+    run_cmd(["gcloud", "secrets", "create", secret_name, "--replication-policy=automatic"])
+    
+    # Add version securely via stdin to avoid exposing in process lists
+    proc = subprocess.Popen(
+        ["gcloud", "secrets", "versions", "add", secret_name, "--data-file=-"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+    stdout, stderr = proc.communicate(input=secret_val)
+    if proc.returncode != 0:
+        console.print(f"[bold red]Failed to add version to secret {secret_name}:[/bold red] {stderr}")
+        sys.exit(1)
 
 def main(
     project_id: Optional[str] = typer.Option(None, "--project-id", "-p", help="Google Cloud Project ID"),
@@ -120,15 +147,8 @@ def main(
     os.environ["CLOUDSDK_CORE_PROJECT"] = project_id
 
     # 2. Check if Google Drive Client Secret is already in Secret Manager
-    has_drive_secret = False
-    check_secret = subprocess.run(
-        ["gcloud", "secrets", "describe", "google-drive-client-secret"],
-        capture_output=True,
-        text=True,
-        stdin=subprocess.DEVNULL
-    )
-    if check_secret.returncode == 0:
-        has_drive_secret = True
+    has_drive_secret = secret_exists("google-drive-client-secret")
+    if has_drive_secret:
         console.print("[bold green]✔[/bold green] Found existing [bold cyan]google-drive-client-secret[/bold cyan] in Secret Manager.")
 
     # 3. Prompt for missing credentials/parameters
@@ -169,6 +189,7 @@ def main(
         register_looker = questionary.confirm("Do you want to automatically register this action in Looker?", default=False).ask()
 
     if register_looker:
+        console.print("\n[bold yellow]Note:[/bold yellow] We will not save or store your Looker API credentials.")
         if not looker_url:
             looker_url = questionary.text("Enter Looker Base URL (e.g. https://yourcompany.looker.com):").ask()
         if not looker_client_id:
@@ -231,34 +252,20 @@ def main(
     max_retries = 12
     retry_delay = 5
     
-    # Roles to grant to the service account (only Secret Accessor is needed at runtime)
+    # Roles to grant to the service account (Secret Accessor at runtime, Cloud Build Editor for source deploys)
     roles_to_grant = [
-        "roles/secretmanager.secretAccessor"
+        "roles/secretmanager.secretAccessor",
+        "roles/cloudbuild.builds.editor"
     ]
 
     console.print(f"Granting required roles to [bold cyan]{run_sa}[/bold cyan] on the project...")
     for role in roles_to_grant:
-        for attempt in range(1, max_retries + 1):
-            res = run_cmd([
-                "gcloud", "projects", "add-iam-policy-binding", project_id,
-                f"--member=serviceAccount:{run_sa}",
-                f"--role={role}"
-            ], check=False, capture_output=True)
-            if res.returncode == 0:
-                break
-            
-            stderr_msg = res.stderr or ""
-            if "does not exist" in stderr_msg or "INVALID_ARGUMENT" in stderr_msg:
-                if attempt == max_retries:
-                    console.print(f"\n[bold red]Error granting role {role} after {max_retries} attempts:[/bold red]")
-                    console.print(f"[red]{stderr_msg.strip()}[/red]")
-                    sys.exit(1)
-                console.print(f"  [yellow]Service account not yet available, retrying role binding for {role} in {retry_delay}s... (attempt {attempt}/{max_retries})[/yellow]")
-                time.sleep(retry_delay)
-            else:
-                console.print("\n[bold red]Error running command:[/bold red] gcloud projects add-iam-policy-binding")
-                console.print(f"[red]{stderr_msg.strip()}[/red]")
-                sys.exit(1)
+        run_cmd_with_retry(
+            ["gcloud", "projects", "add-iam-policy-binding", project_id, f"--member=serviceAccount:{run_sa}", f"--role={role}"],
+            error_substrings=["does not exist", "INVALID_ARGUMENT"],
+            max_retries=max_retries,
+            delay=retry_delay
+        )
 
     # If using a custom service account, grant Service Account User to the build service accounts
     if run_sa != default_sa:
@@ -268,27 +275,12 @@ def main(
             f"{project_number}@cloudbuild.gserviceaccount.com"
         ]
         for b_sa in build_sas:
-            for attempt in range(1, max_retries + 1):
-                res = run_cmd([
-                    "gcloud", "iam", "service-accounts", "add-iam-policy-binding",
-                    run_sa,
-                    f"--member=serviceAccount:{b_sa}",
-                    "--role=roles/iam.serviceAccountUser"
-                ], check=False, capture_output=True)
-                if res.returncode == 0:
-                    break
-                
-                stderr_msg = res.stderr or ""
-                if "does not exist" in stderr_msg or "INVALID_ARGUMENT" in stderr_msg:
-                    if attempt == max_retries:
-                        console.print(f"\n[bold red]Error granting Service Account User to {b_sa} after {max_retries} attempts:[/bold red]")
-                        console.print(f"[red]{stderr_msg.strip()}[/red]")
-                        sys.exit(1)
-                    time.sleep(retry_delay)
-                else:
-                    console.print("\n[bold red]Error running command:[/bold red] gcloud iam service-accounts add-iam-policy-binding")
-                    console.print(f"[red]{stderr_msg.strip()}[/red]")
-                    sys.exit(1)
+            run_cmd_with_retry(
+                ["gcloud", "iam", "service-accounts", "add-iam-policy-binding", run_sa, f"--member=serviceAccount:{b_sa}", "--role=roles/iam.serviceAccountUser"],
+                error_substrings=["does not exist", "INVALID_ARGUMENT"],
+                max_retries=max_retries,
+                delay=retry_delay
+            )
 
     # Spinner for IAM propagation
     with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
@@ -296,31 +288,14 @@ def main(
     console.print("[bold green]✔[/bold green] IAM permissions propagated.")
 
     # 6. Create Secrets in Secret Manager if they do not exist
-    cipher_master_val = secrets.token_hex(32)
-    action_hub_secret_val = secrets.token_hex(32)
+    if not secret_exists("cipher-master"):
+        create_secret_if_missing("cipher-master", secrets.token_hex(32))
 
-    # Handle cipher-master
-    check_cipher = subprocess.run(
-        ["gcloud", "secrets", "describe", "cipher-master"],
-        capture_output=True,
-        stdin=subprocess.DEVNULL
-    )
-    if check_cipher.returncode == 0:
-        console.print("Retrieving existing [bold cyan]cipher-master[/bold cyan] secret...")
-        cipher_master_val = get_secret_value("cipher-master")
-    else:
-        create_secret_if_missing("cipher-master", cipher_master_val)
-
-    # Handle action-hub-secret
-    check_hub_secret = subprocess.run(
-        ["gcloud", "secrets", "describe", "action-hub-secret"],
-        capture_output=True,
-        stdin=subprocess.DEVNULL
-    )
-    if check_hub_secret.returncode == 0:
+    if secret_exists("action-hub-secret"):
         console.print("Retrieving existing [bold cyan]action-hub-secret[/bold cyan] secret...")
         action_hub_secret_val = get_secret_value("action-hub-secret")
     else:
+        action_hub_secret_val = secrets.token_hex(32)
         create_secret_if_missing("action-hub-secret", action_hub_secret_val)
 
     # Handle google-drive-client-secret
@@ -339,6 +314,7 @@ def main(
         "--cpu=2",
         "--memory=4Gi",
         f"--service-account={run_sa}",
+        f"--build-service-account={run_sa}",
         f"--set-env-vars=GOOGLE_DRIVE_CLIENT_ID={drive_client_id},ACTION_HUB_LABEL=Google Docs,ACTION_HUB_BASE_URL=http://placeholder",
         "--set-secrets=CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest"
     ]
