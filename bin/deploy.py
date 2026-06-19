@@ -369,7 +369,7 @@ def main(
         env["LOOKERSDK_BASE_URL"] = looker_url
 
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        register_script = os.path.join(script_dir, "bin", "register_integration.py")
+        register_script = os.path.join(script_dir, "register_integration.py")
 
         # Run registration script via uv
         run_cmd([
