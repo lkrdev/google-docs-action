@@ -370,10 +370,9 @@ def main(
         script_dir = os.path.dirname(os.path.abspath(__file__))
         register_script = os.path.join(script_dir, "bin", "register_integration.py")
 
-        # Run registration script via uvx sandbox
+        # Run registration script via uv
         run_cmd([
-            "uvx", "--from", "lkr-dev-cli[codemode]", "lkr", "code-mode", "sandbox",
-            "--file", register_script
+            "uv", "run", register_script
         ], env=env)
 
     # 10. Display Registration Details

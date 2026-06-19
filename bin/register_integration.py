@@ -1,3 +1,10 @@
+#!/usr/bin/env uv run
+# /// script
+# dependencies = [
+#     "looker-sdk>=24.0.0",
+# ]
+# ///
+
 import os
 
 # Fallback for local IDE autocomplete and static analysis
