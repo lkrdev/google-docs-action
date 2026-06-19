@@ -258,7 +258,8 @@ def main(
     # Roles to grant to the service account (Secret Accessor at runtime, Cloud Build Editor for source deploys)
     roles_to_grant = [
         "roles/secretmanager.secretAccessor",
-        "roles/cloudbuild.builds.editor"
+        "roles/cloudbuild.builds.editor",
+        "roles/storage.objectAdmin"
     ]
 
     console.print(f"Granting required roles to [bold cyan]{run_sa}[/bold cyan] on the project...")

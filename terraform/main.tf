@@ -209,3 +209,10 @@ resource "google_project_iam_member" "sa_cloudbuild_editor" {
   role    = "roles/cloudbuild.builds.editor"
   member  = "serviceAccount:${google_service_account.sa.email}"
 }
+
+# 11. Grant Storage Object Admin role to the Service Account
+resource "google_project_iam_member" "sa_storage_object_admin" {
+  project = var.project_id
+  role    = "roles/storage.objectAdmin"
+  member  = "serviceAccount:${google_service_account.sa.email}"
+}
