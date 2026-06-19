@@ -12,4 +12,4 @@ if ! command -v uv &> /dev/null; then
 fi
 
 # 2. Execute the Python deployment script, forwarding all arguments
-exec uv run "$SCRIPT_DIR/deploy.py" "$@"
+exec uv run "$SCRIPT_DIR/bin/deploy.py" "$@"
