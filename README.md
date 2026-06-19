@@ -121,7 +121,7 @@ gcloud secrets create action-hub-secret \
   --data-file <(echo $ACTION_HUB_SECRET)
 
 gcloud run deploy google-docs-action \
-  --image=us-central1-docker.pkg.dev/lkr-dev-production/looker-action/google-docs-action@sha256:c71031c7faf6b7c7618ca023040252c43fe2b5c0ed0e850913253c1ab6bf671a \
+  --image=us-central1-docker.pkg.dev/lkr-dev-production/looker-action/google-docs-action:latest \
   --platform=managed \
   --region=us-central1 \
   --allow-unauthenticated \
