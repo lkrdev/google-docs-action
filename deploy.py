@@ -259,7 +259,9 @@ def main(
     roles_to_grant = [
         "roles/secretmanager.secretAccessor",
         "roles/cloudbuild.builds.editor",
-        "roles/storage.objectAdmin"
+        "roles/storage.objectAdmin",
+        "roles/logging.logWriter",
+        "roles/artifactregistry.writer"
     ]
 
     console.print(f"Granting required roles to [bold cyan]{run_sa}[/bold cyan] on the project...")

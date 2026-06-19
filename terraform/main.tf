@@ -216,3 +216,17 @@ resource "google_project_iam_member" "sa_storage_object_admin" {
   role    = "roles/storage.objectAdmin"
   member  = "serviceAccount:${google_service_account.sa.email}"
 }
+
+# 12. Grant Logs Writer role to the Service Account
+resource "google_project_iam_member" "sa_logging_log_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.sa.email}"
+}
+
+# 13. Grant Artifact Registry Writer role to the Service Account
+resource "google_project_iam_member" "sa_artifact_registry_writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
+  member  = "serviceAccount:${google_service_account.sa.email}"
+}
