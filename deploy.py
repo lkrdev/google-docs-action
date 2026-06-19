@@ -217,7 +217,11 @@ def main(
             default=True
         ).ask()
         if create_sa_choice:
-            service_account_email = f"google-docs-action-sa@{project_id}.iam.gserviceaccount.com"
+            import random
+            import string
+            suffix = "".join(random.choices(string.ascii_lowercase, k=4))
+            sa_name = f"google-docs-action-sa-{suffix}"
+            service_account_email = f"{sa_name}@{project_id}.iam.gserviceaccount.com"
             create_new_sa = True
 
     # Retrieve Project Number for default SA fallback
@@ -229,7 +233,6 @@ def main(
     default_sa = f"{project_number}-compute@developer.gserviceaccount.com"
 
     if create_new_sa:
-        sa_name = "google-docs-action-sa"
         console.print(f"Checking service account [bold cyan]{service_account_email}[/bold cyan]...")
         check_sa = subprocess.run(
             ["gcloud", "iam", "service-accounts", "describe", service_account_email],
@@ -314,7 +317,7 @@ def main(
         "--cpu=2",
         "--memory=4Gi",
         f"--service-account={run_sa}",
-        f"--build-service-account={run_sa}",
+        f"--build-service-account=projects/{project_id}/serviceAccounts/{run_sa}",
         f"--set-env-vars=GOOGLE_DRIVE_CLIENT_ID={drive_client_id},ACTION_HUB_LABEL=Google Docs,ACTION_HUB_BASE_URL=http://placeholder",
         "--set-secrets=CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest"
     ]
