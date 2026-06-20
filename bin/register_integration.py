@@ -5,7 +5,11 @@
 # ]
 # ///
 
+import hashlib
+import hmac
 import os
+import secrets
+import time
 
 # Fallback for local IDE autocomplete and static analysis
 if "sdk" not in globals():
@@ -19,6 +23,17 @@ if not url:
     raise Exception("SERVICE_URL environment variable not set.")
 if not token:
     raise Exception("API_KEY_TOKEN environment variable not set.")
+
+# If the token is a raw secret key (i.e. does not contain a '/'),
+# dynamically generate the required nonce/digest token format.
+if "/" not in token:
+    nonce = secrets.token_bytes(32).hex()
+    digest = hmac.new(
+        token.encode("utf-8"),
+        nonce.encode("utf-8"),
+        hashlib.sha512
+    ).hexdigest()
+    token = f"{nonce}/{digest}"
 
 print(f'Registering Integration Hub {url} in Looker...')
 try:
@@ -44,8 +59,16 @@ except Exception as e:
     print(f'Updated existing Integration Hub (ID: {new_hub.id})')
 
 print('Enabling google_docs integration...')
-integrations = sdk.all_integrations()
-integration = next((i for i in integrations if i.integration_hub_id == new_hub.id and i.id == 'google_docs'), None)
+integration = None
+for attempt in range(6):
+    integrations = sdk.all_integrations()
+    integration = next((i for i in integrations if i.integration_hub_id == new_hub.id and i.id.split("::")[-1] == "google_docs"), None)
+    if integration:
+        break
+    if attempt < 5:
+        print(f"Integration 'google_docs' not found on hub {new_hub.id} yet. Retrying in 3 seconds... (Attempt {attempt+1}/6)")
+        time.sleep(3)
+
 if integration:
     sdk.update_integration(
         integration_id=integration.id,

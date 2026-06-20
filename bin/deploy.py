@@ -65,11 +65,8 @@ def secret_exists(secret_name: str) -> bool:
     return res.returncode == 0
 
 def run_cmd_with_retry(
-    cmd: list[str], 
-    error_substrings: list[str], 
-    max_retries: int = 12, 
-    delay: int = 5
-) -> subprocess.CompletedProcess:
+    cmd: list[str], error_substrings: list[str], max_retries: int = 12, delay: int = 5
+):
     """Run a command, retrying if the stderr contains any of the error_substrings."""
     for attempt in range(1, max_retries + 1):
         res = run_cmd(cmd, check=False, capture_output=True)
@@ -87,7 +84,7 @@ def run_cmd_with_retry(
             console.print(f"[red]{stderr_msg.strip()}[/red]")
             sys.exit(1)
 
-def create_secret_if_missing(secret_name: str, secret_val: str):
+def create_secret_if_missing(secret_name: str, secret_val: str | None = None):
     """Create a secret in Secret Manager if it doesn't exist, and add the value as the latest version."""
     if secret_exists(secret_name):
         console.print(f"Secret [bold green]{secret_name}[/bold green] already exists.")
@@ -249,6 +246,7 @@ def main(
     default_sa = f"{project_number}-compute@developer.gserviceaccount.com"
 
     if create_new_sa:
+        assert service_account_email is not None
         console.print(f"Checking service account [bold cyan]{service_account_email}[/bold cyan]...")
         check_sa = subprocess.run(
             ["gcloud", "iam", "service-accounts", "describe", service_account_email],
@@ -329,17 +327,23 @@ def main(
 
     # 7. Deploy to Google Cloud Run
     console.print("\n[bold cyan]Deploying service to Google Cloud Run...[/bold cyan]")
-    
+
+    action_hub_label = "lkr.dev actions (google doc)"
+
     deploy_cmd = [
-        "gcloud", "run", "deploy", "google-docs-action",
-        "--platform", "managed",
+        "gcloud",
+        "run",
+        "deploy",
+        "google-docs-action",
+        "--platform",
+        "managed",
         f"--region={region}",
         "--no-invoker-iam-check",
         "--cpu=2",
         "--memory=4Gi",
         f"--service-account={run_sa}",
-        f"--set-env-vars=GOOGLE_DRIVE_CLIENT_ID={drive_client_id},ACTION_HUB_LABEL=Google Docs,ACTION_HUB_BASE_URL=http://placeholder",
-        "--set-secrets=CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest"
+        f"--set-env-vars=GOOGLE_DRIVE_CLIENT_ID={drive_client_id},ACTION_HUB_LABEL={action_hub_label},ACTION_HUB_BASE_URL=http://placeholder",
+        "--set-secrets=CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest",
     ]
     
     if image_source == "build":
@@ -387,6 +391,10 @@ def main(
     if register_looker:
         console.print("\n[bold cyan]Registering action with Looker Instance...[/bold cyan]")
         
+        assert looker_client_id is not None
+        assert looker_client_secret is not None
+        assert looker_url is not None
+
         env = os.environ.copy()
         env["SERVICE_URL"] = service_url
         env["API_KEY_TOKEN"] = api_key_token

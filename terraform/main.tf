@@ -145,7 +145,7 @@ resource "google_cloud_run_v2_service" "service" {
 
       env {
         name  = "ACTION_HUB_LABEL"
-        value = "Google Docs"
+        value = "lkr.dev actions (google doc)"
       }
 
       env {
