@@ -22,4 +22,5 @@ import "./test_oauth_action"
 import "./test_server"
 import "./test_smoke"
 
-import "../src/actions/google/drive/docs/test_google_docs"
+import "../src/actions/google/docs/test_google_docs";
+
