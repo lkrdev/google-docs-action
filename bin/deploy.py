@@ -210,25 +210,33 @@ def main(
         run_cmd(["gcloud", "services", "enable"] + apis, capture_output=True)
     console.print("[bold green]✔[/bold green] Google Cloud APIs enabled successfully.")
 
-    # 5. Configure Service Account (conditional)
-    if service_account_email:
-        max_retries = 12
-        retry_delay = 5
-        runtime_roles = [
-            "roles/secretmanager.secretAccessor",
-            "roles/logging.logWriter"
-        ]
-        console.print(f"Granting required runtime roles to [bold cyan]{service_account_email}[/bold cyan] on the project...")
-        for role in runtime_roles:
-            run_cmd_with_retry(
-                ["gcloud", "projects", "add-iam-policy-binding", project_id, f"--member=serviceAccount:{service_account_email}", f"--role={role}"],
-                error_substrings=["does not exist", "INVALID_ARGUMENT"],
-                max_retries=max_retries,
-                delay=retry_delay
-            )
-        with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
-            time.sleep(30)
-        console.print("[bold green]✔[/bold green] IAM permissions propagated.")
+    # 5. Configure Service Account
+    if not service_account_email:
+        # Retrieve Project Number for default Compute Engine service account fallback
+        project_number_res = run_cmd(
+            ["gcloud", "projects", "describe", project_id, "--format=value(projectNumber)"],
+            capture_output=True
+        )
+        project_number = project_number_res.stdout.strip()
+        service_account_email = f"{project_number}-compute@developer.gserviceaccount.com"
+
+    max_retries = 12
+    retry_delay = 5
+    runtime_roles = [
+        "roles/secretmanager.secretAccessor",
+        "roles/logging.logWriter"
+    ]
+    console.print(f"Granting required runtime roles to [bold cyan]{service_account_email}[/bold cyan] on the project...")
+    for role in runtime_roles:
+        run_cmd_with_retry(
+            ["gcloud", "projects", "add-iam-policy-binding", project_id, f"--member=serviceAccount:{service_account_email}", f"--role={role}"],
+            error_substrings=["does not exist", "INVALID_ARGUMENT"],
+            max_retries=max_retries,
+            delay=retry_delay
+        )
+    with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
+        time.sleep(30)
+    console.print("[bold green]✔[/bold green] IAM permissions propagated.")
 
 
 
