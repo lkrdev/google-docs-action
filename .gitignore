@@ -62,4 +62,4 @@ override.tf.json
 .terraformrc
 terraform.rc
 
-lib2
+lib

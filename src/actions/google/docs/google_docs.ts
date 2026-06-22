@@ -40,7 +40,7 @@ interface OauthState {
 export class GoogleDocsAction extends Hub.OAuthActionV2 {
   name = "google_docs";
   label = "Google Docs";
-  iconName = "google/drive/docs/docs.svg";
+  iconName = "google/docs/docs.svg";
   description = "Create a new Google Doc with data in a table.";
   supportedActionTypes = [Hub.ActionType.Query];
   supportedFormats = [Hub.ActionFormat.Csv];

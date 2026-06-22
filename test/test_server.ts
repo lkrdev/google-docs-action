@@ -46,6 +46,10 @@ describe("the action hub", () => {
       .end((_err, res) => {
         chai.expect(res).to.have.status(200)
         chai.expect(res.body.integrations.length).to.be.greaterThan(0)
+        for (const integration of res.body.integrations) {
+          chai.expect(integration.icon_data_uri).to.be.a("string")
+          chai.expect(integration.icon_data_uri).to.not.be.empty
+        }
         stub.restore()
         done()
       })
