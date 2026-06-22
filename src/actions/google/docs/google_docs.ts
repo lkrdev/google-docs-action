@@ -329,6 +329,7 @@ export class GoogleDocsAction extends Hub.OAuthActionV2 {
           error,
           webhookId: request.webhookId,
         });
+        return this.loginForm(request, error.message);
       }
     }
     return this.loginForm(request);
@@ -546,11 +547,15 @@ export class GoogleDocsAction extends Hub.OAuthActionV2 {
     stateJson: string,
     requestWebhookId: string | undefined,
   ): Promise<Hub.ActionToken | null> {
+    if (!stateJson || stateJson === "reset" || stateJson === "null") {
+      winston.info("State is reset or empty", { webhookId: requestWebhookId });
+      return null;
+    }
     let state: any;
     try {
       state = JSON.parse(stateJson);
     } catch (e: any) {
-      winston.error(`Failed to parse state_json`, {
+      winston.error(`Failed to parse state_json: ${e.message}`, {
         webhookId: requestWebhookId,
       });
       return null;
@@ -584,7 +589,7 @@ export class GoogleDocsAction extends Hub.OAuthActionV2 {
       tokenPayload = new Hub.ActionToken(state.tokens, state.redirect);
     }
     if (tokenPayload === null) {
-      winston.error("Invalid state_json", { webhookId: requestWebhookId });
+      winston.info("No valid tokens found in state_json", { webhookId: requestWebhookId });
     }
     return tokenPayload;
   }
@@ -702,9 +707,17 @@ export class GoogleDocsAction extends Hub.OAuthActionV2 {
     return `${statePayload.tokenurl!}?state=${ciphertextBlob}`;
   }
 
-  private async loginForm(request: Hub.ActionRequest) {
+  private async loginForm(request: Hub.ActionRequest, errorMessage?: string) {
     const form = new Hub.ActionForm();
     form.fields = [];
+
+    if (errorMessage) {
+      form.fields.push({
+        name: "error_message",
+        type: "message",
+        value: `⚠️ Login failed: ${errorMessage}`,
+      });
+    }
 
     const hasTokenUrl = request.params.hasOwnProperty("state_redir_url");
     winston.info(`Using ${hasTokenUrl ? "V2" : "V1"} flow`);
@@ -726,8 +739,9 @@ export class GoogleDocsAction extends Hub.OAuthActionV2 {
       type: "oauth_link_google",
       label: "Log in",
       description:
-        "In order to send to Google Docs, you will need to log in" +
-        ` once to your Google account. WebhookID if oauth fails: ${request.webhookId}`,
+        "In order to send to Google Docs, you will need to log in once to your Google account. " +
+        "(If you just completed the login and still see this screen, please close and reopen or refresh this window.)\n\n" +
+        `Diagnostics - Webhook ID: ${request.webhookId || "none"}`,
       oauth_url: `${process.env.ACTION_HUB_BASE_URL}/actions/${this.name}/oauth?state=${ciphertextBlob}`,
     });
     winston.debug(
