@@ -41,7 +41,7 @@ export default class Server implements Hub.RouteBuilder {
 
     blocked((time: number, stack: string[]) => {
       winston.warn(`Event loop blocked for ${time}ms, operation started here:\n${stack.join("\n")}`)
-    }, {threshold: 100})
+    }, {threshold: 1000})
 
     if (!process.env.ACTION_HUB_BASE_URL) {
       throw new Error("No ACTION_HUB_BASE_URL environment variable set.")

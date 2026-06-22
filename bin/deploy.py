@@ -271,6 +271,8 @@ def main(
         "--no-invoker-iam-check",
         "--cpu=2",
         "--memory=4Gi",
+        "--timeout=60m",
+        "--concurrency=10",
         f"--set-env-vars=GOOGLE_DRIVE_CLIENT_ID={drive_client_id},ACTION_HUB_LABEL={action_hub_label},ACTION_HUB_BASE_URL=http://placeholder",
         "--set-secrets=CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest",
     ]
