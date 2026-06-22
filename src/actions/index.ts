@@ -1,1 +1,1 @@
-import "./google/drive/docs/google_docs";
+import "./google/docs/google_docs"

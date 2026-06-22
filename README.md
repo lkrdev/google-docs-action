@@ -84,20 +84,56 @@ You can deploy this integration directly to Cloud Run using Google Cloud Shell. 
 
 [![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://ssh.cloud.google.com/cloudshell/editor?shellonly=true&cloudshell_git_repo=https://github.com/lkrdev/google-docs-action)
 
-After the Cloud Shell environment finishes loading, execute the deployment script:
+After the Cloud Shell environment finishes loading, execute the deployment script. You can run it interactively (the script will prompt you for any missing options) or run it fully unattended by passing command-line arguments:
+
 ```bash
+# Run interactively (will prompt for missing credentials)
 ./deploy.sh
+
+# Or run non-interactively by passing arguments directly
+./deploy.sh --project-id="my-project-id" --drive-client-id="my-client-id" --drive-client-secret="my-client-secret"
 ```
 
-*(Note: The script will automatically install `uv` if it is not already present on your system, and then launch the interactive Python wizard.)*
+*(Note: The script will automatically install `uv` if it is not already present on your system, and then launch the Python wizard. Any arguments you pass to `./deploy.sh` are automatically forwarded directly to the underlying `bin/deploy.py` script.)*
 
 This script will automatically:
 * Enable the required Google Cloud APIs (Cloud Run, Secret Manager, Google Drive, and Google Docs).
-* Prompt you for your Google Drive Client ID and Client Secret.
+* Prompt you for (or accept via arguments) your Google Drive Client ID and Client Secret.
 * Generate and store secure encryption keys in Secret Manager (`cipher-master` and `action-hub-secret`).
 * Deploy the integration to Google Cloud Run.
 * Optionally register the Action Hub automatically in your Looker instance.
 * Output the final URL and API Token details.
+
+### CLI Options Reference
+
+The deployment script (`./deploy.sh` / `bin/deploy.py`) supports the following command-line options:
+
+| Option | Shorthand | Type | Description |
+| :--- | :--- | :--- | :--- |
+| `--project-id` | `-p` | `TEXT` | Google Cloud Project ID |
+| `--drive-client-id` | | `TEXT` | Google Drive Client ID |
+| `--drive-client-secret` | | `TEXT` | Google Drive Client Secret |
+| `--region` | `-r` | `TEXT` | Cloud Run region (e.g. `us-central1`) |
+| `--service-account-email` | | `TEXT` | Specific pre-existing service account email to run the Cloud Run service. (Note: If specified, the script will automatically grant the necessary Secret Accessor and Log Writer roles to it.) |
+| `--register-looker` / `--no-register-looker` | | `FLAG` | Automatically register the action in Looker |
+| `--looker-url` | | `TEXT` | Looker Base URL (e.g., `https://yourcompany.looker.com`) |
+| `--looker-client-id` | | `TEXT` | Looker Client ID |
+| `--looker-client-secret` | | `TEXT` | Looker Client Secret |
+| `--help` | | `FLAG` | Show help message and exit |
+
+For example, to run a fully unattended deployment with automated Looker registration and a custom pre-existing service account:
+```bash
+./deploy.sh \
+  --project-id="my-gcp-project" \
+  --drive-client-id="my-drive-client-id" \
+  --drive-client-secret="my-drive-client-secret" \
+  --region="us-central1" \
+  --service-account-email="my-preexisting-sa@my-gcp-project.iam.gserviceaccount.com" \
+  --register-looker \
+  --looker-url="https://mycompany.looker.com" \
+  --looker-client-id="my-looker-api-id" \
+  --looker-client-secret="my-looker-api-secret"
+```
 
 
 ### Option B: Deploying via CLI (gcloud)

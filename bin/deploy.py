@@ -210,74 +210,27 @@ def main(
         run_cmd(["gcloud", "services", "enable"] + apis, capture_output=True)
     console.print("[bold green]✔[/bold green] Google Cloud APIs enabled successfully.")
 
-    # 5. Configure Service Account
-    create_new_sa = False
-    if not service_account_email:
-        create_sa_choice = questionary.confirm(
-            "Do you want to create a new dedicated service account for this deployment? (recommended)", 
-            default=True
-        ).ask()
-        if create_sa_choice:
-            import random
-            import string
-            suffix = "".join(random.choices(string.ascii_lowercase, k=4))
-            sa_name = f"google-docs-action-sa-{suffix}"
-            service_account_email = f"{sa_name}@{project_id}.iam.gserviceaccount.com"
-            create_new_sa = True
-
-    # Retrieve Project Number for default SA fallback
-    project_number_res = run_cmd(
-        ["gcloud", "projects", "describe", project_id, "--format=value(projectNumber)"], 
-        capture_output=True
-    )
-    project_number = project_number_res.stdout.strip()
-    default_sa = f"{project_number}-compute@developer.gserviceaccount.com"
-
-    if create_new_sa:
-        assert service_account_email is not None
-        console.print(f"Checking service account [bold cyan]{service_account_email}[/bold cyan]...")
-        check_sa = subprocess.run(
-            ["gcloud", "iam", "service-accounts", "describe", service_account_email],
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL
-        )
-        if check_sa.returncode != 0:
-            console.print(f"Creating dedicated service account [bold cyan]{sa_name}[/bold cyan]...")
-            run_cmd([
-                "gcloud", "iam", "service-accounts", "create", sa_name,
-                "--description=Dedicated service account for Google Docs Action",
-                "--display-name=Google Docs Action Service Account"
-            ], capture_output=True)
-        else:
-            console.print(f"Service account [bold green]{service_account_email}[/bold green] already exists.")
-
-    run_sa = service_account_email if service_account_email else default_sa
-
-    max_retries = 12
-    retry_delay = 5
-    
-    # 1. Roles to grant to the runtime service account (Secret Accessor and Logging Writer)
-    runtime_roles = [
-        "roles/secretmanager.secretAccessor",
-        "roles/logging.logWriter"
-    ]
-
-    console.print(f"Granting required runtime roles to [bold cyan]{run_sa}[/bold cyan] on the project...")
-    for role in runtime_roles:
-        run_cmd_with_retry(
-            ["gcloud", "projects", "add-iam-policy-binding", project_id, f"--member=serviceAccount:{run_sa}", f"--role={role}"],
-            error_substrings=["does not exist", "INVALID_ARGUMENT"],
-            max_retries=max_retries,
-            delay=retry_delay
-        )
+    # 5. Configure Service Account (conditional)
+    if service_account_email:
+        max_retries = 12
+        retry_delay = 5
+        runtime_roles = [
+            "roles/secretmanager.secretAccessor",
+            "roles/logging.logWriter"
+        ]
+        console.print(f"Granting required runtime roles to [bold cyan]{service_account_email}[/bold cyan] on the project...")
+        for role in runtime_roles:
+            run_cmd_with_retry(
+                ["gcloud", "projects", "add-iam-policy-binding", project_id, f"--member=serviceAccount:{service_account_email}", f"--role={role}"],
+                error_substrings=["does not exist", "INVALID_ARGUMENT"],
+                max_retries=max_retries,
+                delay=retry_delay
+            )
+        with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
+            time.sleep(30)
+        console.print("[bold green]✔[/bold green] IAM permissions propagated.")
 
 
-
-    # Spinner for IAM propagation
-    with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
-        time.sleep(30)
-    console.print("[bold green]✔[/bold green] IAM permissions propagated.")
 
     # 6. Create Secrets in Secret Manager if they do not exist
     if not secret_exists("cipher-master"):
@@ -310,10 +263,12 @@ def main(
         "--no-invoker-iam-check",
         "--cpu=2",
         "--memory=4Gi",
-        f"--service-account={run_sa}",
         f"--set-env-vars=GOOGLE_DRIVE_CLIENT_ID={drive_client_id},ACTION_HUB_LABEL={action_hub_label},ACTION_HUB_BASE_URL=http://placeholder",
         "--set-secrets=CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest",
     ]
+    
+    if service_account_email:
+        deploy_cmd.append(f"--service-account={service_account_email}")
     
     deploy_cmd.extend([
         "--image", "us-central1-docker.pkg.dev/lkr-dev-production/looker-action/google-docs-action:latest"
