@@ -112,7 +112,6 @@ def main(
     drive_client_secret: Optional[str] = typer.Option(None, "--drive-client-secret", help="Google Drive Client Secret"),
     region: Optional[str] = typer.Option(None, "--region", "-r", help="Cloud Run region (e.g. us-central1)"),
     service_account_email: Optional[str] = typer.Option(None, "--service-account-email", help="Specific service account email to run the service"),
-    image_source: Optional[str] = typer.Option(None, "--image-source", help="Deployment image source: 'public' or 'build'"),
     register_looker: Optional[bool] = typer.Option(None, "--register-looker/--no-register-looker", help="Automatically register the action in Looker"),
     looker_url: Optional[str] = typer.Option(None, "--looker-url", help="Looker Base URL"),
     looker_client_id: Optional[str] = typer.Option(None, "--looker-client-id", help="Looker Client ID"),
@@ -187,17 +186,7 @@ def main(
     if register_looker is None:
         register_looker = questionary.confirm("Do you want to automatically register this action in Looker?", default=False).ask()
 
-    # Prompt for image source (if not explicitly passed as option)
-    # ponytail: default to build from source, optionally use the public image
-    if image_source not in ["public", "build"]:
-        image_choice = questionary.select(
-            "How would you like to deploy the action?",
-            choices=["Build from source", "Use pre-built public image (recommended)"],
-            default="Use pre-built public image (recommended)",
-        ).ask()
-        image_source = "public" if "public" in image_choice.lower() else "build"
-    else:
-        image_source = "public" if "public" in image_source.lower() else "build"
+
 
     if register_looker:
         console.print("\n[bold yellow]Note:[/bold yellow] We will not save or store your Looker API credentials.")
@@ -215,8 +204,7 @@ def main(
         "drive.googleapis.com",
         "docs.googleapis.com"
     ]
-    if image_source == "build":
-        apis.append("cloudbuild.googleapis.com")
+
 
     with console.status("[bold green]Enabling Google Cloud APIs (this may take a minute)..."):
         run_cmd(["gcloud", "services", "enable"] + apis, capture_output=True)
@@ -284,33 +272,7 @@ def main(
             delay=retry_delay
         )
 
-    # 2. Roles to grant to the build service accounts if building from source
-    if image_source == "build":
-        build_roles = [
-            "roles/storage.objectAdmin",
-            "roles/artifactregistry.writer"
-        ]
-        build_sas = [
-            default_sa,
-            f"{project_number}@cloudbuild.gserviceaccount.com"
-        ]
-        console.print("\nChecking and granting required build roles to build service accounts...")
-        for b_sa in build_sas:
-            for role in build_roles:
-                cmd = ["gcloud", "projects", "add-iam-policy-binding", project_id, f"--member=serviceAccount:{b_sa}", f"--role={role}"]
-                # Run without check=True to handle missing service accounts gracefully
-                res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-                if res.returncode != 0:
-                    # If it failed because the service account doesn't exist, that's fine, just skip it
-                    if "does not exist" in res.stderr or "invalid" in res.stderr.lower():
-                        console.print(f"  [yellow]Note: Service account {b_sa} not found or cannot be modified. Skipping...[/yellow]")
-                        break
-                    else:
-                        console.print(f"\n[bold red]Error granting role {role} to {b_sa}:[/bold red]")
-                        console.print(f"[red]{res.stderr.strip()}[/red]")
-                        sys.exit(1)
-                else:
-                    console.print(f"  [bold green]✔[/bold green] Granted {role} to {b_sa}")
+
 
     # Spinner for IAM propagation
     with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
@@ -353,14 +315,9 @@ def main(
         "--set-secrets=CIPHER_MASTER=cipher-master:latest,ACTION_HUB_SECRET=action-hub-secret:latest,GOOGLE_DRIVE_CLIENT_SECRET=google-drive-client-secret:latest",
     ]
     
-    if image_source == "build":
-        deploy_cmd.extend([
-            "--source", "."
-        ])
-    else:
-        deploy_cmd.extend([
-            "--image", "us-central1-docker.pkg.dev/lkr-dev-production/looker-action/google-docs-action:latest"
-        ])
+    deploy_cmd.extend([
+        "--image", "us-central1-docker.pkg.dev/lkr-dev-production/looker-action/google-docs-action:latest"
+    ])
     
     # Run the deployment and stream output to console
     run_cmd(deploy_cmd)
