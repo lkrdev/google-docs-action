@@ -192,8 +192,8 @@ def main(
     if image_source not in ["public", "build"]:
         image_choice = questionary.select(
             "How would you like to deploy the action?",
-            choices=["Build from source (recommended)", "Use pre-built public image"],
-            default="Use pre-built public image",
+            choices=["Build from source", "Use pre-built public image (recommended)"],
+            default="Use pre-built public image (recommended)",
         ).ask()
         image_source = "public" if "public" in image_choice.lower() else "build"
     else:
@@ -269,17 +269,11 @@ def main(
     max_retries = 12
     retry_delay = 5
     
-    # Roles to grant to the service account (Secret Accessor at runtime, Cloud Build Editor for source deploys)
+    # Roles to grant to the service account at runtime (Secret Accessor and Logging Writer)
     roles_to_grant = [
         "roles/secretmanager.secretAccessor",
         "roles/logging.logWriter"
     ]
-    if image_source == "build":
-        roles_to_grant.extend([
-            "roles/cloudbuild.builds.editor",
-            "roles/storage.objectAdmin",
-            "roles/artifactregistry.writer"
-        ])
 
     console.print(f"Granting required roles to [bold cyan]{run_sa}[/bold cyan] on the project...")
     for role in roles_to_grant:
@@ -289,21 +283,6 @@ def main(
             max_retries=max_retries,
             delay=retry_delay
         )
-
-    # If using a custom service account and building from source, grant Service Account User to the build service accounts
-    if image_source == "build" and run_sa != default_sa:
-        console.print(f"Granting [bold magenta]Service Account User[/bold magenta] role on [bold cyan]{run_sa}[/bold cyan] to build service accounts...")
-        build_sas = [
-            f"{project_number}-compute@developer.gserviceaccount.com",
-            f"{project_number}@cloudbuild.gserviceaccount.com"
-        ]
-        for b_sa in build_sas:
-            run_cmd_with_retry(
-                ["gcloud", "iam", "service-accounts", "add-iam-policy-binding", run_sa, f"--member=serviceAccount:{b_sa}", "--role=roles/iam.serviceAccountUser"],
-                error_substrings=["does not exist", "INVALID_ARGUMENT"],
-                max_retries=max_retries,
-                delay=retry_delay
-            )
 
     # Spinner for IAM propagation
     with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
@@ -348,8 +327,7 @@ def main(
     
     if image_source == "build":
         deploy_cmd.extend([
-            "--source", ".",
-            f"--build-service-account=projects/{project_id}/serviceAccounts/{run_sa}"
+            "--source", "."
         ])
     else:
         deploy_cmd.extend([
