@@ -269,20 +269,48 @@ def main(
     max_retries = 12
     retry_delay = 5
     
-    # Roles to grant to the service account at runtime (Secret Accessor and Logging Writer)
-    roles_to_grant = [
+    # 1. Roles to grant to the runtime service account (Secret Accessor and Logging Writer)
+    runtime_roles = [
         "roles/secretmanager.secretAccessor",
         "roles/logging.logWriter"
     ]
 
-    console.print(f"Granting required roles to [bold cyan]{run_sa}[/bold cyan] on the project...")
-    for role in roles_to_grant:
+    console.print(f"Granting required runtime roles to [bold cyan]{run_sa}[/bold cyan] on the project...")
+    for role in runtime_roles:
         run_cmd_with_retry(
             ["gcloud", "projects", "add-iam-policy-binding", project_id, f"--member=serviceAccount:{run_sa}", f"--role={role}"],
             error_substrings=["does not exist", "INVALID_ARGUMENT"],
             max_retries=max_retries,
             delay=retry_delay
         )
+
+    # 2. Roles to grant to the build service accounts if building from source
+    if image_source == "build":
+        build_roles = [
+            "roles/storage.objectAdmin",
+            "roles/artifactregistry.writer"
+        ]
+        build_sas = [
+            default_sa,
+            f"{project_number}@cloudbuild.gserviceaccount.com"
+        ]
+        console.print("\nChecking and granting required build roles to build service accounts...")
+        for b_sa in build_sas:
+            for role in build_roles:
+                cmd = ["gcloud", "projects", "add-iam-policy-binding", project_id, f"--member=serviceAccount:{b_sa}", f"--role={role}"]
+                # Run without check=True to handle missing service accounts gracefully
+                res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                if res.returncode != 0:
+                    # If it failed because the service account doesn't exist, that's fine, just skip it
+                    if "does not exist" in res.stderr or "invalid" in res.stderr.lower():
+                        console.print(f"  [yellow]Note: Service account {b_sa} not found or cannot be modified. Skipping...[/yellow]")
+                        break
+                    else:
+                        console.print(f"\n[bold red]Error granting role {role} to {b_sa}:[/bold red]")
+                        console.print(f"[red]{res.stderr.strip()}[/red]")
+                        sys.exit(1)
+                else:
+                    console.print(f"  [bold green]✔[/bold green] Granted {role} to {b_sa}")
 
     # Spinner for IAM propagation
     with console.status("[bold green]Waiting 30 seconds for IAM permissions to propagate..."):
