@@ -27,6 +27,23 @@ describe("the action hub", () => {
       })
   })
 
+  it("responds to get /health with health check response", (done) => {
+    chai.request(new Server().app)
+      .get("/health")
+      .end((_err, res) => {
+        chai.expect(res).to.have.status(200)
+        chai.expect(res.body).to.deep.equal({
+          looker: {
+            success: true,
+            message: "Health check passed.",
+          },
+          success: true,
+          message: "Health check passed.",
+        })
+        done()
+      })
+  })
+
   it("403s on POST to the root url without authorization", (done) => {
     chai.request(new Server().app)
       .post("/")
