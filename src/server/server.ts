@@ -289,6 +289,17 @@ export default class Server implements Hub.RouteBuilder {
       res.sendFile(statusJsonPath)
     })
 
+    this.app.get("/health", (_req, res) => {
+      res.status(200).json({
+        looker: {
+          success: true,
+          message: "Health check passed.",
+        },
+        success: true,
+        message: "Health check passed.",
+      })
+    })
+
   }
 
   actionUrl(action: Hub.Action) {
